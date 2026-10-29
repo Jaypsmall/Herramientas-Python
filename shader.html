@@ -1,0 +1,162 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Filtro de Cámara en Tiempo Real - Daltonismo</title>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      background-color: #121212;
+      color: #ffffff;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      margin: 0;
+      min-height: 100vh;
+    }
+    h2 {
+      margin-bottom: 10px;
+    }
+    p {
+      color: #aaa;
+      margin-top: 0;
+      font-size: 14px;
+      text-align: center;
+      max-width: 90%;
+    }
+    .video-container {
+      position: relative;
+      width: 90%;
+      max-width: 500px;
+      border-radius: 12px;
+      overflow: hidden;
+      box-shadow: 0 4px 20px rgba(0,0,0,0.6);
+      background: #000;
+    }
+    /* El vídeo original se oculta pero procesamos sus fotogramas */
+    video {
+      display: none;
+    }
+    /* El canvas es donde dibujamos el resultado con el filtro aplicado */
+    canvas {
+      width: 100%;
+      height: auto;
+      display: block;
+    }
+    button {
+      margin-top: 20px;
+      padding: 12px 24px;
+      background-color: #007acc;
+      color: white;
+      border: none;
+      border-radius: 8px;
+      font-size: 16px;
+      font-weight: bold;
+      cursor: pointer;
+    }
+    button:hover {
+      background-color: #005999;
+    }
+  </style>
+</head>
+<body>
+
+  <h2>Filtro de Cámara en Vivo</h2>
+  <p>Convierte <b>Rojo ➔ Azul Eléctrico</b> y <b>Verde ➔ Amarillo</b></p>
+
+  <button id="btnStart" onclick="iniciarCamara()">Activar Cámara</button>
+
+  <div class="video-container" style="margin-top: 20px;">
+    <video id="webcam" autoplay playsinline></video>
+    <canvas id="outputCanvas"></canvas>
+  </div>
+
+  <script>
+    const video = document.getElementById('webcam');
+    const canvas = document.getElementById('outputCanvas');
+    const ctx = canvas.getContext('2d', { willReadFrequently: true });
+    const btnStart = document.getElementById('btnStart');
+
+    // Tablas de consulta (LUT) para procesamiento rápido
+    const lutRedToElectricBlue = new Uint8ClampedArray(256 * 3);
+    const lutGreenToYellow = new Uint8ClampedArray(256 * 3);
+
+    function inicializarLUTs() {
+      for (let i = 0; i < 256; i++) {
+        // Rojo -> Azul Eléctrico
+        lutRedToElectricBlue[i * 3 + 0] = Math.floor(i * 0.0); // R
+        lutRedToElectricBlue[i * 3 + 1] = Math.floor(i * 0.4); // G
+        lutRedToElectricBlue[i * 3 + 2] = Math.floor(i * 1.0); // B
+
+        // Verde -> Amarillo
+        lutGreenToYellow[i * 3 + 0] = Math.floor(i * 1.0);     // R
+        lutGreenToYellow[i * 3 + 1] = Math.floor(i * 1.0);     // G
+        lutGreenToYellow[i * 3 + 2] = Math.floor(i * 0.0);     // B
+      }
+    }
+
+    async function iniciarCamara() {
+      try {
+        // Pedir acceso a la cámara (preferir cámara trasera en móviles)
+        const stream = await navigator.mediaDevices.getUserMedia({
+          video: { facingMode: { ideal: "environment" } },
+          audio: false
+        });
+
+        video.srcObject = stream;
+        btnStart.style.display = 'none';
+
+        video.onloadedmetadata = () => {
+          canvas.width = video.videoWidth;
+          canvas.height = video.videoHeight;
+          inicializarLUTs();
+          procesarFotograma();
+        };
+
+      } catch (err) {
+        alert("Error al acceder a la cámara: " + err.message);
+      }
+    }
+
+    function procesarFotograma() {
+      if (video.paused || video.ended) return;
+
+      // 1. Dibujar el fotograma del vídeo original en el canvas
+      ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+
+      // 2. Extraer los datos de imagen (matriz de píxeles)
+      const frame = ctx.getImageData(0, 0, canvas.width, canvas.height);
+      const data = frame.data;
+
+      // 3. Modificar los píxeles en tiempo real usando el mapeo LUT
+      for (let i = 0; i < data.length; i += 4) {
+        let r = data[i];
+        let g = data[i + 1];
+        let b = data[i + 2];
+
+        // Si el tono predominante es Rojo
+        if (r > g + 35 && r > b + 35) {
+          data[i]     = lutRedToElectricBlue[r * 3 + 0]; // R
+          data[i + 1] = lutRedToElectricBlue[r * 3 + 1]; // G
+          data[i + 2] = lutRedToElectricBlue[r * 3 + 2]; // B
+        }
+        // Si el tono predominante es Verde
+        else if (g > r + 25 && g > b + 25) {
+          data[i]     = lutGreenToYellow[g * 3 + 0];     // R
+          data[i + 1] = lutGreenToYellow[g * 3 + 1];     // G
+          data[i + 2] = lutGreenToYellow[g * 3 + 2];     // B
+        }
+      }
+
+      // 4. Volcar de nuevo la imagen procesada en pantalla
+      ctx.putImageData(frame, 0, 0);
+
+      // Repetir continuamente en cada fotograma renderizado por el navegador
+      requestAnimationFrame(procesarFotograma);
+    }
+  </script>
+
+</body>
+</html>
